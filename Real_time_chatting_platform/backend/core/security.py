@@ -6,8 +6,12 @@ from uuid import UUID, uuid4
 
 import jwt
 from jwt.exceptions import InvalidTokenError
-
+import hashlib
 from core.config import settings
+
+
+def hash_token(raw_token: str) -> str:
+    return hashlib.sha256(raw_token.encode()).hexdigest()
 
 _password_hasher = PasswordHasher()
 
