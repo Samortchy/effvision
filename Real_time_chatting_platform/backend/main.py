@@ -2,6 +2,10 @@ from fastapi import FastAPI, Depends
 from contextlib import asynccontextmanager
 from sqlalchemy.ext.asyncio import AsyncSession
 from infrastructure.database.sessions import get_db, engine
+
+from core.logger import configure_logging
+from infrastructure.middleware import LoggingMiddleware
+
 from api.routes.conversations import router as conversations_router
 from api.routes.auth import router as auth_router
 from api.routes.users import router as users_router
@@ -12,7 +16,9 @@ async def lifSpan(app: FastAPI):
     yield
     await engine.dispose()
 
+configure_logging()
 app = FastAPI(lifespan=lifSpan)
+app.middleware(LoggingMiddleware)
 
 app.include_router(auth_router)
 app.include_router(users_router)
