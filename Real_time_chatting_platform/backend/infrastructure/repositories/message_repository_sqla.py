@@ -1,8 +1,7 @@
 from __future__ import annotations
 from datetime import datetime
 import uuid
-
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from domain.entities.message import Message
@@ -24,6 +23,33 @@ class SQLAlchemyMessageRepository(MessageRepository):
         self.session.add(orm_message)
         await self.session.flush()
         return self._to_domain(orm_message)
+
+    async def delete_message(self, message_id: uuid.UUID, deleted_at: datetime) -> None:
+        # Soft delete: the row stays for audit/history, but every read path
+        # filters on is_deleted, so it stops being visible to clients.
+        result = await self.session.execute(select(MessageORM).where(MessageORM.id == message_id))
+        orm_message = result.scalar_one_or_none()
+        if orm_message:
+            orm_message.is_deleted = True
+            orm_message.deleted_at = deleted_at
+            await self.session.flush()
+
+    async def search_messages(
+        self, conversation_id: uuid.UUID, query: str, limit: int, offset: int
+    ) -> list[Message]:
+        stmt = (
+            select(MessageORM)
+            .where(
+                MessageORM.conversation_id == conversation_id,
+                MessageORM.is_deleted.is_(False),
+                MessageORM.search_vector.op("@@")(func.plainto_tsquery("english", query)),
+            )
+            .order_by(MessageORM.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        result = await self.session.execute(stmt)
+        return [self._to_domain(m) for m in result.scalars().all()]
 
     async def get_conversation_history(
         self, conversation_id: uuid.UUID, before: datetime | None, limit: int

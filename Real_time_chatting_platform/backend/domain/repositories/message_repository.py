@@ -22,3 +22,13 @@ class MessageRepository(ABC):
         self, conversation_id: uuid.UUID, before: datetime | None, limit: int
     ) -> list[Message]:
         ...
+
+    @abstractmethod
+    async def delete_message(self, message_id: uuid.UUID, deleted_at: datetime) -> None:
+        ...
+
+    @abstractmethod
+    async def search_messages(
+        self, conversation_id: uuid.UUID, query: str, limit: int, offset: int
+    ) -> list[Message]:
+        ...

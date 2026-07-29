@@ -36,3 +36,11 @@ class LastOwnerError(DomainError):
 
 class CannotLeavePrivateConversationError(DomainError):
     """Raised when a user tries to leave a 1:1 private conversation."""
+
+
+class MessageNotFoundError(DomainError):
+    """Raised when a referenced message does not exist."""
+
+
+class NotMessageOwnerError(DomainError):
+    """Raised when a user attempts to modify a message they didn't send."""
