@@ -1,0 +1,43 @@
+# Backend runtime dependencies.
+#
+# Install into a virtualenv, not the system Python:
+#   python -m venv .venv
+#   .venv\Scripts\activate        (Windows)   |   source .venv/bin/activate  (macOS/Linux)
+#   pip install -r requirements.txt
+#
+# Versions are pinned exactly so every machine and CI run resolves identically.
+
+# --- Web framework ---------------------------------------------------------
+fastapi==0.115.14
+
+# Pinned on purpose, and the three below must move as a set.
+# fastapi 0.115.x requires starlette <0.42, but sse-starlette 3.x requires
+# starlette >=0.49 and pip will happily upgrade it, which breaks every router in
+# the app with:
+#   TypeError: Router.__init__() got an unexpected keyword argument 'on_startup'
+# sse-starlette 2.1.3 is the newest release compatible with this starlette.
+starlette==0.41.3
+sse-starlette==2.1.3
+
+# [standard] brings in `websockets`, which uvicorn needs to serve the WebSocket
+# routes. Plain `uvicorn` will reject WS handshakes.
+uvicorn[standard]==0.30.6
+
+# --- Database --------------------------------------------------------------
+# [asyncio] pulls in greenlet, required by SQLAlchemy's async engine.
+SQLAlchemy[asyncio]==2.0.43
+asyncpg==0.31.0
+alembic==1.16.4
+
+# --- Config & validation ---------------------------------------------------
+pydantic==2.12.3
+pydantic-settings==2.12.0
+# Backs SettingsConfigDict(env_file=".env") in core/config.py.
+python-dotenv==1.1.1
+
+# --- Auth ------------------------------------------------------------------
+PyJWT==2.12.1
+argon2-cffi==25.1.0
+
+# --- Logging ---------------------------------------------------------------
+structlog==26.1.0
