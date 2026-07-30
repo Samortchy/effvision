@@ -44,3 +44,11 @@ class MessageNotFoundError(DomainError):
 
 class NotMessageOwnerError(DomainError):
     """Raised when a user attempts to modify a message they didn't send."""
+
+
+class NotificationNotFoundError(DomainError):
+    """Raised when a referenced notification does not exist."""
+
+
+class NotNotificationOwnerError(DomainError):
+    """Raised when a user attempts to act on another user's notification."""
