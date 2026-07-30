@@ -1,6 +1,8 @@
 from __future__ import annotations
 import re
 
+from uuid import UUID
+
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
@@ -16,6 +18,11 @@ class RegisterRequest(BaseModel):
             raise ValueError("Username must be alphanumeric (letters, numbers, underscores)")
         return v
 
+
+class RegisterResponse(BaseModel):
+    id: UUID
+    username: str
+    email: EmailStr
 
 class LoginRequest(BaseModel):
     identifier: str = Field(min_length=1, max_length=255)

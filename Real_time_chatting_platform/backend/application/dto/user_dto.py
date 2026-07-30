@@ -3,6 +3,8 @@ from datetime import datetime
 from typing import Any, Literal
 import uuid
 
+from datetime import datetime
+
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
@@ -50,6 +52,36 @@ class UpdateProfileRequest(BaseModel):
         field is absent from the result entirely.
         """
         return self.model_dump(exclude_unset=True)
+
+
+# class UpdateProfileResponse(BaseModel):
+#     """The updated user profile. Never includes password_hash."""
+#     model_config =  ConfigDict(extra = "ignore")
+
+#     id: uuid.UUID
+#     username: str 
+#     display_name: str | None = Field(default=None, max_length=100)
+#     avatar_url: str | None = Field(default=None, max_length=2048)
+#     email: EmailStr
+#     bio: str | None = Field(default=None, max_length=500)
+#     status: Literal['online', 'offline', 'away']
+#     last_seen_at: datetime | None = None
+#     created_at: datetime
+
+class UserProfileResponse(BaseModel):
+    """The user profile. Never includes password_hash."""
+    model_config =  ConfigDict(extra = "ignore")
+
+    id: uuid.UUID
+    username: str 
+    display_name: str | None = Field(default=None, max_length=100)
+    avatar_url: str | None = Field(default=None, max_length=2048)
+    email: EmailStr
+    bio: str | None = Field(default=None, max_length=500)
+    status: Literal['online', 'offline', 'away']
+    last_seen_at: datetime | None = None
+    created_at: datetime
+
 
 
 class UpdateStatusRequest(BaseModel):

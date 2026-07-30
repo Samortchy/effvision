@@ -12,6 +12,21 @@ from sqlalchemy import func
 
 class SQLAlchemyUserRepository(UserRepository):
 
+    async def update(self, user: User) -> User:
+        result = await self.session.execute(select(UserORM).where(UserORM.id == user.id))
+        orm_user = result.scalar_one_or_none()
+        if not orm_user:
+            return None
+        
+        orm_user.username = user.username
+        orm_user.email = user.email
+        orm_user.display_name = user.display_name
+        orm_user.avatar_url = user.avatar_url
+        orm_user.bio = user.bio
+        await self.session.commit()
+        await self.session.refresh(orm_user)
+        return self._to_domain(orm_user)
+
 #search
     async def search_by_username(self, query: str, limit: int, offset: int) -> list[User]:
         stmt = (

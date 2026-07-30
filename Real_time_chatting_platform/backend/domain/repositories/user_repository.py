@@ -30,3 +30,7 @@ class UserRepository(ABC):
     @abstractmethod
     async def update_last_seen(self, user_id: uuid.UUID, timestamp: datetime) -> None:
         ...
+
+    @abstractmethod
+    async def update(self, user: User) -> None:
+        ...

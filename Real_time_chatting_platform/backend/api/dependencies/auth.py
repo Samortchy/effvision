@@ -1,4 +1,4 @@
-from fastapi import Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 
 from api.dependencies.repositories import get_user_repository
@@ -6,7 +6,11 @@ from core.security import decode_token
 from domain.entities.user import User
 from domain.repositories.user_repository import UserRepository
 from application.use_cases.users.update_last_seen import UpdateLastSeenUseCase
+
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+
+from application.dto.auth_dto import RegisterResponse, RegisterRequest
+from application.use_cases.users.register_user import RegisterUserUseCase, DuplicateUserError
 
 
 async def get_current_user(
