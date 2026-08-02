@@ -1,28 +1,5 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from uuid import UUID
-
-from domain.entities.conversations import Conversation
-
-class ConversationRepository:
-
-    @abstractmethod
-    async def get_public_conversation(self) -> Conversation | None:
-        ...
-
-    @abstractmethod
-    async def create(self, conversation: Conversation) -> Conversation:
-        ...
-
-    @abstractmethod
-    async def add_member(self, conversation_id, user_id, role_str = "member") -> None:
-        ...
-
-    @abstractmethod
-    async def is_member(self, conversation_id, user_id) -> bool:
-        ...
-from __future__ import annotations
-from abc import ABC, abstractmethod
 from datetime import datetime
 import uuid
 
@@ -35,6 +12,21 @@ class ConversationRepository(ABC):
 
     @abstractmethod
     async def get_by_id(self, conversation_id: uuid.UUID) -> Conversation | None:
+        ...
+
+    @abstractmethod
+    async def get_public_conversation(self) -> Conversation | None:
+        """The single global conversation, if it has been created yet.
+
+        There is at most one — enforced by a partial unique index on
+        (type) WHERE type = 'public', not by application code.
+        """
+        ...
+
+    @abstractmethod
+    async def create_public_conversation(self, name: str) -> Conversation:
+        """Called once, from application startup. Racing callers lose on the
+        partial unique index rather than creating a second global room."""
         ...
 
     @abstractmethod

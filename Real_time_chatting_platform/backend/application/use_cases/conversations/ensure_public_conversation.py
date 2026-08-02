@@ -1,5 +1,5 @@
+from domain.entities.conversation import Conversation
 from domain.repositories.conversation_repository import ConversationRepository
-from domain.entities.conversations import Conversation
 
 import structlog
 
@@ -10,14 +10,12 @@ class EnsurePublicConversationUseCase:
         self.repo = repo
 
     async def execute(self) -> Conversation:
-        exisits = await self.repo.get_public_conversation()
+        existing = await self.repo.get_public_conversation()
 
-        if exisits:
-            return exisits
+        if existing:
+            return existing
 
-        create = await self.repo.create(Conversation(id = None, type = "public", name = "Global chat"))
-        logger.info("public_conversation_created", conversation_id=str(create.id))
+        created = await self.repo.create_public_conversation("Global chat")
+        logger.info("public_conversation_created", conversation_id=str(created.id))
 
-        return create
-
-        
+        return created

@@ -2,9 +2,11 @@ from __future__ import annotations
 import uuid
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from domain.entities.user import User
+from domain.exceptions import UserAlreadyExistsError
 from domain.repositories.user_repository import UserRepository
 from infrastructure.database.models.user import User as UserORM
 from datetime import datetime
@@ -50,6 +52,22 @@ class SQLAlchemyUserRepository(UserRepository):
 
     def __init__(self, session: AsyncSession):
         self.session = session
+
+    async def create_user(self, username: str, email: str, password_hash: str) -> User:
+        orm_user = UserORM(username=username, email=email, password_hash=password_hash)
+        self.session.add(orm_user)
+        try:
+            # flush, not commit: get_db() owns the transaction and commits once
+            # the request succeeds. The flush is still needed here so the server
+            # defaults (id, status, created_at) come back populated, and so a
+            # unique violation surfaces now rather than at request teardown.
+            await self.session.flush()
+        except IntegrityError as exc:
+            # Translate the driver error at the boundary; nothing above this
+            # layer should have to know what SQLAlchemy or Postgres raise.
+            detail = str(exc.orig).lower()
+            raise UserAlreadyExistsError("email" if "email" in detail else "username") from exc
+        return self._to_domain(orm_user)
 
     async def get_by_id(self, user_id: uuid.UUID) -> User | None:
         result = await self.session.execute(select(UserORM).where(UserORM.id == user_id))

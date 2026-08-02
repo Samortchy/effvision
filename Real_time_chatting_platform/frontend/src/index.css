@@ -1,0 +1,27 @@
+@import "tailwindcss";
+
+@theme {
+  --color-surface: oklch(0.19 0.014 265);
+  --color-surface-raised: oklch(0.24 0.016 265);
+  --color-surface-sunken: oklch(0.15 0.012 265);
+  --color-edge: oklch(0.32 0.018 265);
+  --color-accent: oklch(0.68 0.15 255);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background-color: var(--color-surface-sunken);
+  color: oklch(0.93 0.005 265);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Slim scrollbars — the message list is the main scroll surface. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-edge) transparent;
+}
