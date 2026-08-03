@@ -1,6 +1,6 @@
 from domain.repositories.user_repository import UserRepository
 from application.dto.user_dto import UpdateProfileRequest, UserProfileResponse
-from use_cases.users.get_user_profile import UserNotFound
+from application.use_cases.users.get_user_profile import UserNotFound
 
 class UpdateUserProfileUseCase:
     def __init__(self, user_repository: UserRepository):

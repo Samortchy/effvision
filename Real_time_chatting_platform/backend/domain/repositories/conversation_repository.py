@@ -23,6 +23,21 @@ class ConversationRepository(ABC):
         ...
 
     @abstractmethod
+    async def get_public_conversation(self) -> Conversation | None:
+        """The single global conversation, if it has been created yet.
+
+        There is at most one — enforced by a partial unique index on
+        (type) WHERE type = 'public', not by application code.
+        """
+        ...
+
+    @abstractmethod
+    async def create_public_conversation(self, name: str) -> Conversation:
+        """Called once, from application startup. Racing callers lose on the
+        partial unique index rather than creating a second global room."""
+        ...
+
+    @abstractmethod
     async def get_private_conversation(self, user_a_id: uuid.UUID, user_b_id: uuid.UUID) -> Conversation | None:
         ...
 

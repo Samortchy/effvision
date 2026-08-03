@@ -10,6 +10,28 @@ class UserNotFoundError(DomainError):
     """Raised when a referenced user no longer exists."""
 
 
+class UserAlreadyExistsError(DomainError):
+    """Raised when a username or email is already taken.
+
+    `field` is the column name ("username" / "email"), never the value. The
+    repository raises this instead of leaking a driver-level IntegrityError, so
+    the application layer never has to import SQLAlchemy to handle the race.
+    """
+
+    def __init__(self, field: str):
+        self.field = field
+        super().__init__(f"A user with that {field} already exists")
+
+
+class InvalidCredentialsError(DomainError):
+    """Raised when a login identifier/password pair does not authenticate.
+
+    Deliberately does not distinguish "no such user" from "wrong password" —
+    that difference is exactly what turns a login form into an account-existence
+    oracle, so both paths raise this same error.
+    """
+
+
 class CannotMessageSelfError(DomainError):
     """Raised when a user tries to start a private conversation with themself."""
 

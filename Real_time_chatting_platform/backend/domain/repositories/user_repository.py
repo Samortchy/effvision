@@ -12,6 +12,17 @@ class UserRepository(ABC):
     this interface only — never on the concrete SQLAlchemy class directly."""
 
     @abstractmethod
+    async def create_user(self, username: str, email: str, password_hash: str) -> User:
+        """Persist a new user and return it with the DB-generated id/created_at.
+
+        Takes the already-hashed password, never the plaintext — hashing is the
+        use case's job, and the repository must not be a place a raw password can
+        reach. Uniqueness of username/email is enforced by the DB, so a caller
+        that pre-checks still has to handle IntegrityError.
+        """
+        ...
+
+    @abstractmethod
     async def get_by_id(self, user_id: uuid.UUID) -> User | None:
         ...
 

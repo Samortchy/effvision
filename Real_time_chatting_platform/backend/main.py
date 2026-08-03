@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Depends
+from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,15 +22,34 @@ async def lifSpan(app: FastAPI):
     async with engine.begin() as conn:
         pass
 
-    async with AsyncSessionLocal as session:
+    async with AsyncSessionLocal() as session:
         repo = SQLAlchemyConversationRepository(session)
         await EnsurePublicConversationUseCase(repo).execute()
+        await session.commit()
         
     yield
     await engine.dispose()
 
 configure_logging()
 app = FastAPI(lifespan=lifSpan)
+
+# The Vite dev server is a different origin from the API, so every browser call
+# from it is cross-origin. Listed explicitly rather than "*": credentials are
+# sent on these routes, and the wildcard is ignored once they are.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    # The frontend reads no custom headers today; X-Request-ID is exposed so a
+    # failing request can be traced back to its log line.
+    expose_headers=["X-Request-ID"],
+)
+
 app.add_middleware(LoggingMiddleware)
 
 app.include_router(auth_router)
