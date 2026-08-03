@@ -16,4 +16,4 @@ class WebSocketBroadcaster(Broadcaster):
         self.connection_manager = connection_manager
 
     async def broadcast_to_conversation(self, conversation_id: uuid.UUID, event: dict[str, Any]) -> None:
-        await self.connection_manager.broadcast_to_conversation(conversation_id, event)
+        await self.connection_manager.broadcast(conversation_id, event)

@@ -19,8 +19,11 @@ from application.dto.conversation_dto import (
 from application.use_cases.conversations.get_conversation_history import GetConversationHistoryUseCase
 from application.use_cases.conversations.leave_group import LeaveGroupUseCase
 from application.use_cases.conversations.manage_membership import ChangeMemberRoleUseCase, RemoveMemberUseCase
+from application.use_cases.conversations.join_public_conversation import JoinPublicConversationUseCase
 from application.use_cases.conversations.start_private_conversation import StartPrivateConversationUseCase
+from application.use_cases.conversations.get_public_conversation import GetPublicConversationUseCase, PublicConvoNotFound, UserNotFound, IntegrityError
 from domain.entities.user import User
+from domain.entities.conversation import Conversation
 from domain.exceptions import (
     CannotLeavePrivateConversationError,
     CannotMessageSelfError,
@@ -139,3 +142,25 @@ async def remove_member(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except InsufficientPermissionError as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
+
+@router.get("/public", resonse_model = ConversationResponse)
+async def get_public_conversation(conversation_repo: ConversationRepository = Depends(get_conversation_repository)) -> Conversation:
+    use_case = GetPublicConversationUseCase(conversation_repo)
+
+
+    return await use_case.execute()
+
+
+@router.get("/public/join")
+async def join_public_conversation(current_user: User = Depends(get_current_user),
+                                    convo_repo: ConversationRepository = Depends(get_conversation_repository),
+                                    user_repo: UserRepository = Depends(get_user_repository)):
+    use_case = JoinPublicConversationUseCase(user_repo, convo_repo)
+    try:
+        return await use_case.execute(current_user.id)
+    except PublicConvoNotFound as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except UserNotFound as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except IntegrityError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))

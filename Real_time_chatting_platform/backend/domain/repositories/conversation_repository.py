@@ -1,28 +1,5 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from uuid import UUID
-
-from domain.entities.conversations import Conversation
-
-class ConversationRepository:
-
-    @abstractmethod
-    async def get_public_conversation(self) -> Conversation | None:
-        ...
-
-    @abstractmethod
-    async def create(self, conversation: Conversation) -> Conversation:
-        ...
-
-    @abstractmethod
-    async def add_member(self, conversation_id, user_id, role_str = "member") -> None:
-        ...
-
-    @abstractmethod
-    async def is_member(self, conversation_id, user_id) -> bool:
-        ...
-from __future__ import annotations
-from abc import ABC, abstractmethod
 from datetime import datetime
 import uuid
 
@@ -32,6 +9,14 @@ from domain.entities.conversation_member import ConversationMember, Role
 
 class ConversationRepository(ABC):
     """Port for conversation + membership persistence."""
+
+    @abstractmethod
+    async def create(self, conversation: Conversation) -> Conversation:
+        ...
+
+    @abstractmethod
+    async def get_public_conversation(self) -> Conversation:
+        ...
 
     @abstractmethod
     async def get_by_id(self, conversation_id: uuid.UUID) -> Conversation | None:
@@ -76,4 +61,8 @@ class ConversationRepository(ABC):
         use case layer, not the persistence layer.
 
         Raises MemberNotFoundError if there is no membership row."""
+        ...
+
+    @abstractmethod
+    async def list_member_ids(self, conversation_id) -> list:
         ...

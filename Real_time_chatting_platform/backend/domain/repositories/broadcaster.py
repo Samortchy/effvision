@@ -9,5 +9,5 @@ class Broadcaster(ABC):
     actual WebSocket connection manager (infrastructure/websocket)."""
 
     @abstractmethod
-    async def broadcast_to_conversation(self, conversation_id: uuid.UUID, event: dict[str, Any]) -> None:
+    async def broadcast(self, conversation_id: uuid.UUID, event: dict[str, Any]) -> None:
         ...
