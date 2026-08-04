@@ -53,7 +53,7 @@ function runRefresh() {
   return refreshPromise;
 }
 
-/** Refresh is exported so the SSE hook can force one when its token expires. */
+/** Exported so the auth store can restore a session on boot from the refresh token. */
 export { runRefresh as refreshAccessToken };
 
 /** Endpoints that must never trigger the refresh-and-retry dance. */

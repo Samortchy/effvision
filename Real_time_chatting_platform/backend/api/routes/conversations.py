@@ -11,6 +11,7 @@ from api.dependencies.repositories import (
 )
 from application.dto.conversation_dto import (
     ChangeMemberRoleRequest,
+    ConversationMemberResponse,
     ConversationResponse,
     MessageHistoryQuery,
     MessageResponse,
@@ -19,11 +20,16 @@ from application.dto.conversation_dto import (
 from application.use_cases.conversations.get_conversation_history import GetConversationHistoryUseCase
 from application.use_cases.conversations.leave_group import LeaveGroupUseCase
 from application.use_cases.conversations.manage_membership import ChangeMemberRoleUseCase, RemoveMemberUseCase
-from application.use_cases.conversations.join_public_conversation import JoinPublicConversationUseCase
+from application.use_cases.conversations.join_public_conversation import (
+    AlreadyAMemberError,
+    JoinPublicConversationUseCase,
+    PublicConvoNotFound,
+    UserNotFound,
+)
 from application.use_cases.conversations.start_private_conversation import StartPrivateConversationUseCase
-from application.use_cases.conversations.get_public_conversation import GetPublicConversationUseCase, PublicConvoNotFound, UserNotFound, IntegrityError
+from application.use_cases.conversations.get_public_conversation import GetPublicConversationUseCase
+from application.use_cases.conversations.list_conversation_members import ListConversationMembersUseCase
 from domain.entities.user import User
-from domain.entities.conversation import Conversation
 from domain.exceptions import (
     CannotLeavePrivateConversationError,
     CannotMessageSelfError,
@@ -143,24 +149,42 @@ async def remove_member(
     except InsufficientPermissionError as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
 
-@router.get("/public", resonse_model = ConversationResponse)
-async def get_public_conversation(conversation_repo: ConversationRepository = Depends(get_conversation_repository)) -> Conversation:
+@router.get("/public", response_model=ConversationResponse)
+async def get_public_conversation(
+    conversation_repo: ConversationRepository = Depends(get_conversation_repository),
+) -> ConversationResponse:
     use_case = GetPublicConversationUseCase(conversation_repo)
+    conversation = await use_case.execute()
+    return ConversationResponse.model_validate(conversation)
 
 
-    return await use_case.execute()
-
-
-@router.get("/public/join")
+@router.get("/public/join", response_model=ConversationMemberResponse)
 async def join_public_conversation(current_user: User = Depends(get_current_user),
                                     convo_repo: ConversationRepository = Depends(get_conversation_repository),
-                                    user_repo: UserRepository = Depends(get_user_repository)):
+                                    user_repo: UserRepository = Depends(get_user_repository)) -> ConversationMemberResponse:
     use_case = JoinPublicConversationUseCase(user_repo, convo_repo)
     try:
-        return await use_case.execute(current_user.id)
+        member = await use_case.execute(current_user.id)
     except PublicConvoNotFound as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except UserNotFound as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    except IntegrityError as e:
+    except AlreadyAMemberError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+
+    return ConversationMemberResponse.model_validate(member)
+
+
+@router.get("/{conversation_id}/members", response_model=list[ConversationMemberResponse])
+async def list_conversation_members(
+    conversation_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    conversation_repo: ConversationRepository = Depends(get_conversation_repository),
+) -> list[ConversationMemberResponse]:
+    use_case = ListConversationMembersUseCase(conversation_repo)
+    try:
+        members = await use_case.execute(conversation_id, current_user.id)
+    except NotAConversationMemberError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
+
+    return [ConversationMemberResponse.model_validate(m) for m in members]

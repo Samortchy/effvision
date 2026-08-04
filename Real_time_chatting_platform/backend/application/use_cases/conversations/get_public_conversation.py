@@ -15,7 +15,11 @@ class GetPublicConversationUseCase:
         if exisits:
             return exisits
 
-        conversation = await self.repo.create(Conversation(id = None, type = "public", name = "Global chat"))
+        # create_public_conversation, not create(Conversation(...)): the entity
+        # has no defaults and its id is the database's to assign, so there is no
+        # valid Conversation to hand in here. The repository also resolves the
+        # race on the single-public-room index, which a bare insert would not.
+        conversation = await self.repo.create_public_conversation("Global chat")
         logger.info("public_conversation_created", conversation_id=str(conversation.id))
 
         return conversation

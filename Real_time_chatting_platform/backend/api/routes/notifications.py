@@ -15,6 +15,15 @@ from domain.repositories.notification_repository import NotificationRepository
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
+# Comment frames on an idle stream, so an intermediary proxy does not decide the
+# connection is dead and drop it silently. This is sse-starlette's own default;
+# stated explicitly because the behaviour is load-bearing here.
+PING_INTERVAL_SECONDS = 15
+
+# Ceiling on a single send. Generous — this is a stuck-socket backstop, not a
+# latency budget.
+SEND_TIMEOUT_SECONDS = 30.0
+
 
 def _parse_last_event_id(last_event_id: str | None) -> datetime | None:
     """The stream's event ids are ISO-8601 timestamps, so the Last-Event-ID a
@@ -51,7 +60,24 @@ async def stream_notifications(
                 "data": event.model_dump_json(),
             }
 
-    return EventSourceResponse(event_generator())
+    # Backstops against a stream that stops going anywhere. Note what is NOT
+    # here: a `request.is_disconnected()` check in the generator. EventSourceResponse
+    # already runs listen_for_disconnect(), which awaits receive() and cancels the
+    # task group; calling is_disconnected() would put a second consumer on the same
+    # ASGI receive channel, and whichever coroutine happened to be waiting would
+    # swallow the http.disconnect the other one needed. That makes the leak more
+    # likely, not less.
+    #
+    # What is missing by default is send_timeout: it is None out of the box, and
+    # stream_response wraps each send in anyio.move_on_after(send_timeout), which
+    # never fires for None. A client that stops reading its socket then blocks that
+    # send forever and pins the task, the generator and its poll loop. A finite
+    # timeout turns that into a SendTimeoutError that tears the stream down.
+    return EventSourceResponse(
+        event_generator(),
+        ping=PING_INTERVAL_SECONDS,
+        send_timeout=SEND_TIMEOUT_SECONDS,
+    )
 
 
 @router.patch("/{notification_id}/read", status_code=status.HTTP_204_NO_CONTENT, response_model=None)

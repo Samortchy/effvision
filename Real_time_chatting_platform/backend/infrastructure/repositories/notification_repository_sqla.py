@@ -23,11 +23,14 @@ class SQLAlchemyNotificationRepository(NotificationRepository):
         orm_notification = result.scalar_one_or_none()
         return self._to_domain(orm_notification) if orm_notification else None
 
-    async def get_new_since(self, user_id: uuid.UUID, since: datetime | None) -> list[Notification]:
+    async def get_new_since(
+        self, user_id: uuid.UUID, since: datetime | None, limit: int = 100
+    ) -> list[Notification]:
         stmt = (
             select(NotificationORM)
             .where(NotificationORM.user_id == user_id)
             .order_by(NotificationORM.created_at.asc())
+            .limit(limit)
         )
         if since is not None:
             stmt = stmt.where(NotificationORM.created_at >= since)

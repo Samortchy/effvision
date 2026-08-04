@@ -35,6 +35,13 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
 
 
+class StreamTicketResponse(BaseModel):
+    """A one-shot credential for opening an SSE stream. See core.stream_tickets."""
+
+    ticket: str
+    expires_in: int
+
+
 class RefreshTokenRequest(BaseModel):
     refresh_token: str
 

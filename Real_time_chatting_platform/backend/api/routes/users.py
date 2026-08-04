@@ -33,17 +33,25 @@ async def get_my_profile(current_user: User = Depends(get_current_user), repo: U
         return await use_case.execute(current_user.id)
 
     except UserNotFound:
-        return HTTPException(status_code=404, detail="User not found")
+        # raise, not return: a returned HTTPException is just an object, and
+        # FastAPI would try to validate it against response_model and 500.
+        raise HTTPException(status_code=404, detail="User not found")
+
 
 @router.patch("/me", response_model = UserProfileResponse)
-async def update_my_profile(current_user: UpdateProfileRequest = Depends(get_current_user), repo: UserRepository = Depends(get_user_repository)):
-
+async def update_my_profile(
+    payload: UpdateProfileRequest,
+    current_user: User = Depends(get_current_user),
+    repo: UserRepository = Depends(get_user_repository),
+) -> UserProfileResponse:
+    # `payload` is the body; `current_user` is who is making the change. They
+    # were previously the same parameter, so the body was never read at all.
     use_case = UpdateUserProfileUseCase(repo)
 
     try:
-        return await use_case.execute(current_user.id, current_user)
+        return await use_case.execute(current_user.id, payload)
     except UserNotFound:
-        return HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=404, detail="User not found")
 
 
 

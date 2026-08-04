@@ -13,8 +13,14 @@ class SQLAlchemySystemAnnouncementRepository(SystemAnnouncementRepository):
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def get_new_since(self, since: datetime | None) -> list[SystemAnnouncement]:
-        stmt = select(SystemAnnouncementORM).order_by(SystemAnnouncementORM.created_at.asc())
+    async def get_new_since(
+        self, since: datetime | None, limit: int = 100
+    ) -> list[SystemAnnouncement]:
+        stmt = (
+            select(SystemAnnouncementORM)
+            .order_by(SystemAnnouncementORM.created_at.asc())
+            .limit(limit)
+        )
         if since is not None:
             stmt = stmt.where(SystemAnnouncementORM.created_at >= since)
 

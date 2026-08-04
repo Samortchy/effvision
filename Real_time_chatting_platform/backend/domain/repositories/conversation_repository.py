@@ -47,7 +47,7 @@ class ConversationRepository(ABC):
 
     @abstractmethod
     async def add_member(
-        self, conversation_id: uuid.UUID, user_id: uuid.UUID, role: Role
+        self, conversation_id: uuid.UUID, user_id: uuid.UUID, role: Role = "member"
     ) -> ConversationMember:
         ...
 
