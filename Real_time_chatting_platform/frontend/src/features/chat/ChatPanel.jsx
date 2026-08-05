@@ -6,8 +6,19 @@ import MembersPanel from "./MembersPanel";
 import MessageComposer from "./MessageComposer";
 import MessageList from "./MessageList";
 import MessageSearch from "./MessageSearch";
+import TypingIndicator from "./TypingIndicator";
+import { useConversationSocket } from "./useConversationSocket";
 import { conversationTitle } from "../../lib/formatters";
 import { useChatStore } from "../../stores/chatStore";
+
+const CONNECTION_LABEL = {
+  connecting: { text: "Connecting…", className: "bg-amber-400" },
+  open: { text: "Live", className: "bg-emerald-400" },
+  closed: { text: "Reconnecting…", className: "bg-amber-400" },
+  error: { text: "Reconnecting…", className: "bg-red-400" },
+  forbidden: { text: "No access", className: "bg-red-400" },
+  idle: { text: "Offline", className: "bg-slate-500" },
+};
 
 export default function ChatPanel() {
   const { conversationId } = useParams();
@@ -21,6 +32,9 @@ export default function ChatPanel() {
   const [showMembers, setShowMembers] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
 
+  const { connection, typingUserIds, notifyTyping, notifyStoppedTyping } =
+    useConversationSocket(conversationId);
+
   useEffect(() => {
     if (conversationId) setActiveConversation(conversationId);
   }, [conversationId, setActiveConversation]);
@@ -30,6 +44,7 @@ export default function ChatPanel() {
   }
 
   const notMember = thread?.error?.response?.status === 403;
+  const status = CONNECTION_LABEL[connection] ?? CONNECTION_LABEL.idle;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -37,16 +52,25 @@ export default function ChatPanel() {
         <Avatar user={conversation?.peer} size={34} />
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-sm font-semibold text-white">
-            {/* Deep-linking to a conversation this browser has never seen is
-                possible, and there is no endpoint to look one up by id. */}
+            {/* Deep-linking to a conversation this browser has not loaded yet
+                is possible; the sidebar list is refreshed from the server on
+                mount, so the title fills in once that lands. */}
             {conversation
               ? conversationTitle(conversation)
               : `Conversation ${conversationId.slice(0, 8)}…`}
           </h1>
-          <p className="truncate text-xs text-slate-500">
-            {conversation?.peer
-              ? `@${conversation.peer.username}`
-              : conversation?.type ?? "loading…"}
+          <p className="flex items-center gap-1.5 truncate text-xs text-slate-500">
+            <span
+              className={`h-1.5 w-1.5 shrink-0 rounded-full ${status.className}`}
+              aria-hidden="true"
+            />
+            <span>{status.text}</span>
+            <span aria-hidden="true">·</span>
+            <span className="truncate">
+              {conversation?.peer
+                ? `@${conversation.peer.username}`
+                : conversation?.type ?? "loading…"}
+            </span>
           </p>
         </div>
 
@@ -75,7 +99,12 @@ export default function ChatPanel() {
               />
             ) : null}
           </div>
-          <MessageComposer conversationId={conversationId} />
+          <TypingIndicator userIds={typingUserIds} />
+          <MessageComposer
+            conversationId={conversationId}
+            onTyping={notifyTyping}
+            onSent={notifyStoppedTyping}
+          />
         </>
       )}
     </div>

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 import { describeEvent } from "./NotificationBell";
 import { notificationKey, useNotificationStore } from "../../stores/notificationStore";
@@ -6,12 +6,20 @@ import { notificationKey, useNotificationStore } from "../../stores/notification
 const TOAST_MS = 6000;
 
 function Toast({ event, onDismiss }) {
-  // Each toast owns its own timer, so a burst of events does not reset one
-  // another's countdown.
+  // onDismiss is a fresh closure on every parent render, so depending on it
+  // directly restarted this timer whenever *any* notification arrived — during a
+  // burst, earlier toasts never dismissed at all. The ref keeps the latest
+  // callback reachable while leaving the effect's dependencies empty, so the
+  // countdown starts once per toast and runs to completion.
+  const dismissRef = useRef(onDismiss);
   useEffect(() => {
-    const timer = setTimeout(onDismiss, TOAST_MS);
-    return () => clearTimeout(timer);
+    dismissRef.current = onDismiss;
   }, [onDismiss]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => dismissRef.current(), TOAST_MS);
+    return () => clearTimeout(timer);
+  }, []);
 
   const { title, body } = describeEvent(event);
   const isAnnouncement = event.event_category === "system_announcement";

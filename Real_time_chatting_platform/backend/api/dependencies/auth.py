@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import Depends, HTTPException, Query, status
 from fastapi.security import OAuth2PasswordBearer
 
 from api.dependencies.repositories import get_user_repository
@@ -9,9 +9,6 @@ from domain.repositories.user_repository import UserRepository
 from application.use_cases.users.update_last_seen import UpdateLastSeenUseCase
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
-
-from application.dto.auth_dto import RegisterResponse, RegisterRequest
-from application.use_cases.users.register_user import RegisterUserUseCase, DuplicateUserError
 
 # Same scheme, but tolerates a missing header so the caller can fall back to
 # another carrier (see get_current_user_sse).

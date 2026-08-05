@@ -1,4 +1,5 @@
 from __future__ import annotations
+from collections.abc import Sequence
 from datetime import datetime
 import uuid
 
@@ -9,9 +10,15 @@ from sqlalchemy.orm import aliased
 
 from domain.entities.conversation import Conversation
 from domain.entities.conversation_member import ConversationMember, Role
+from domain.entities.user import User
 from domain.exceptions import MemberNotFoundError
 from domain.repositories.conversation_repository import ConversationRepository
-from infrastructure.database.models import Conversation as ConversationModel, ConversationMember as MemberModel
+from infrastructure.database.models import (
+    Conversation as ConversationModel,
+    ConversationMember as MemberModel,
+    User as UserORM,
+)
+from infrastructure.repositories.user_repository_sqla import SQLAlchemyUserRepository
 
 
 class SQLAlchemyConversationRepository(ConversationRepository):
@@ -66,6 +73,48 @@ class SQLAlchemyConversationRepository(ConversationRepository):
         await self.session.refresh(row)
         return self._to_entity(row)
 
+    async def list_for_user(self, user_id: uuid.UUID) -> list[Conversation]:
+        # Ordered by the conversation's own updated_at rather than by a
+        # correlated "last message" subquery: updated_at is already indexed and
+        # maintained by the set_updated_at() trigger, and this endpoint feeds a
+        # sidebar, not an audit.
+        result = await self.session.execute(
+            select(ConversationModel)
+            .join(MemberModel, MemberModel.conversation_id == ConversationModel.id)
+            .where(
+                MemberModel.user_id == user_id,
+                MemberModel.left_at.is_(None),
+            )
+            .order_by(ConversationModel.updated_at.desc())
+        )
+        return [self._to_entity(row) for row in result.scalars().all()]
+
+    async def list_private_peers(
+        self, conversation_ids: Sequence[uuid.UUID], viewer_id: uuid.UUID
+    ) -> dict[uuid.UUID, User]:
+        if not conversation_ids:
+            return {}
+
+        # One query for the whole page. The join to conversations is what keeps
+        # this to private rooms only — without it a group's entire membership
+        # would come back and the dict would silently keep whichever row landed
+        # last.
+        result = await self.session.execute(
+            select(MemberModel.conversation_id, UserORM)
+            .join(UserORM, UserORM.id == MemberModel.user_id)
+            .join(ConversationModel, ConversationModel.id == MemberModel.conversation_id)
+            .where(
+                MemberModel.conversation_id.in_(conversation_ids),
+                MemberModel.user_id != viewer_id,
+                MemberModel.left_at.is_(None),
+                ConversationModel.type == "private",
+            )
+        )
+        return {
+            conversation_id: SQLAlchemyUserRepository._to_domain(orm_user)
+            for conversation_id, orm_user in result.all()
+        }
+
     async def get_private_conversation(
         self, user_a_id: uuid.UUID, user_b_id: uuid.UUID
     ) -> Conversation | None:
@@ -106,6 +155,31 @@ class SQLAlchemyConversationRepository(ConversationRepository):
         await self.session.flush()
         await self.session.refresh(row)
         return self._to_entity(row)
+
+    async def create_group_conversation(
+        self, name: str, description: str | None, created_by: uuid.UUID
+    ) -> Conversation:
+        row = ConversationModel(
+            type="group",
+            name=name,
+            description=description,
+            created_by=created_by,
+        )
+        self.session.add(row)
+        await self.session.flush()
+        # created_at/updated_at are server defaults and the entity requires
+        # both — refresh so they come back populated rather than expired.
+        await self.session.refresh(row)
+        return self._to_entity(row)
+
+    async def reinstate_member(
+        self, conversation_id: uuid.UUID, user_id: uuid.UUID, role: Role = "member"
+    ) -> ConversationMember:
+        row = await self._load_member_row(conversation_id, user_id)
+        row.left_at = None
+        row.role = role
+        await self.session.flush()
+        return self._member_to_entity(row)
 
     async def add_member(
         self, conversation_id: uuid.UUID, user_id: uuid.UUID, role: Role = "member"
@@ -167,10 +241,18 @@ class SQLAlchemyConversationRepository(ConversationRepository):
         await self.session.flush()
 
     async def is_member(self, conversation_id, user_id) -> bool:
+        """Active membership only — unlike get_member, which returns left rows.
+
+        `left_at IS NULL` is the difference between "was ever in this room" and
+        "is in it now". Without it a user who left, or whom an admin removed,
+        keeps passing the WebSocket authorization check in
+        api/websocket/chat_ws.py and goes on receiving the room's traffic.
+        """
         result = await self.session.execute(
             select(MemberModel).where(
                 MemberModel.conversation_id == conversation_id,
                 MemberModel.user_id == user_id,
+                MemberModel.left_at.is_(None),
             )
         )
         return result.scalar_one_or_none() is not None

@@ -25,3 +25,33 @@ body {
   scrollbar-width: thin;
   scrollbar-color: var(--color-edge) transparent;
 }
+
+/* Typing bubble.
+   The three dots share one keyframe and are offset by animation-delay, so the
+   wave stays in step no matter when each dot is painted. */
+@keyframes typing-dot {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  30% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+
+.typing-dot {
+  animation: typing-dot 1.2s ease-in-out infinite;
+}
+
+/* The bubble itself is the message; the motion is decoration. Users who ask for
+   less of it still need to know someone is typing, so the dots stay visible and
+   only the movement stops. */
+@media (prefers-reduced-motion: reduce) {
+  .typing-dot {
+    animation: none;
+    opacity: 0.7;
+  }
+}

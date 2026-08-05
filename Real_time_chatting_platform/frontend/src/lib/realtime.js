@@ -1,61 +1,66 @@
 /**
- * WebSocket wrapper for real-time messaging — NOT CONNECTED.
+ * WebSocket client for real-time chat.
  *
- * Backend state as verified on 2026-07-30:
- *   - There is no api/websocket/ package. api/ contains only routes/ and
- *     dependencies/, and no route anywhere declares a @router.websocket.
- *   - infrastructure/websocket/ holds broadcaster.py alone, and that file
- *     imports infrastructure.websocket.connection_manager, which does not
- *     exist — so even the server-side broadcast path cannot import today.
- *   - domain/repositories/broadcaster.py defines the interface it is meant to
- *     satisfy.
+ * Route: GET /ws/{conversation_id}?token=<access token>
  *
- * So there is no URL to connect to and no message envelope to agree on yet.
- * Rather than guess a protocol and write code that silently retries against a
- * 404 forever, this stays inert behind an explicit opt-in.
+ * Auth is a query parameter for the same reason the SSE stream takes one — the
+ * browser WebSocket constructor accepts no custom headers, so there is nowhere
+ * else to put a bearer credential. The handshake verifies the token and active
+ * membership; failures close with an application code rather than a normal 1000:
  *
- * To turn it on once the backend lands:
- *   1. Confirm the route path and the auth carrier. A browser WebSocket cannot
- *      set an Authorization header either, so it will likely need ?token= in
- *      the query string, the same exception the SSE stream makes.
- *   2. Confirm the inbound envelope and map it onto chatStore.receiveMessage,
- *      which already takes a MessageResponse-shaped object.
- *   3. Set VITE_ENABLE_WEBSOCKET=true and call connectRealtime() from
- *      AppLayout alongside useNotificationStream.
+ *   4401  token missing / invalid / expired  -> refresh and reopen
+ *   4403  not a member of this conversation  -> do not retry, it will not change
+ *
+ * Server -> client frames:
+ *   { type: "message",      payload: MessageResponse }
+ *   { type: "typing_start", conversation_id, user_id }
+ *   { type: "typing_stop",  conversation_id, user_id }
+ *   { type: "error",        code, message }
+ *
+ * Client -> server frames:
+ *   { type: "typing_start" } | { type: "typing_stop" }
  */
 
 import { API_BASE_URL } from "./apiClient";
 
-export const REALTIME_ENABLED = import.meta.env.VITE_ENABLE_WEBSOCKET === "true";
+export const WS_UNAUTHORIZED = 4401;
+export const WS_FORBIDDEN = 4403;
 
-/** Best guess at the eventual URL; unused until the route exists. */
-export function realtimeUrl(token, path = "/ws") {
+/** ws:// for http://, wss:// for https:// — matching the API's scheme. */
+export function realtimeUrl(token, conversationId) {
   const base = API_BASE_URL.replace(/^http/, "ws");
-  return `${base}${path}?token=${encodeURIComponent(token)}`;
+  return `${base}/ws/${conversationId}?token=${encodeURIComponent(token)}`;
 }
 
 /**
  * Minimal reconnecting WebSocket.
  *
- * Unlike EventSource, the WebSocket API has no built-in retry, so backoff has
- * to be written by hand — which is exactly why the notification stream does not
- * have any of this code.
+ * Unlike EventSource, the WebSocket API has no built-in retry, so the backoff
+ * below has to be written by hand — which is exactly why the notification
+ * stream has none of this code.
  *
- * @returns {{close: () => void}}
+ * @param {object}   opts
+ * @param {string}   opts.token           access token
+ * @param {string}   opts.conversationId
+ * @param {Function} opts.onMessage       receives one parsed frame
+ * @param {Function} opts.onStateChange   "connecting" | "open" | "closed" | "error" | "forbidden"
+ * @param {Function} opts.onAuthExpired   called on a 4401 close, to mint a fresh token
+ * @returns {{close: () => void, send: (frame: object) => boolean}}
  */
-export function connectRealtime({ token, onMessage, onStateChange, path = "/ws" }) {
-  if (!REALTIME_ENABLED) {
-    onStateChange?.("disabled");
-    return { close() {} };
-  }
-
+export function connectRealtime({
+  token,
+  conversationId,
+  onMessage,
+  onStateChange,
+  onAuthExpired,
+}) {
   let socket = null;
   let attempt = 0;
   let retryTimer = null;
   let closedByCaller = false;
 
   function open() {
-    socket = new WebSocket(realtimeUrl(token, path));
+    socket = new WebSocket(realtimeUrl(token, conversationId));
     onStateChange?.("connecting");
 
     socket.onopen = () => {
@@ -67,12 +72,29 @@ export function connectRealtime({ token, onMessage, onStateChange, path = "/ws" 
       try {
         onMessage?.(JSON.parse(event.data));
       } catch {
-        /* ignore malformed frames */
+        /* ignore a malformed frame rather than tearing down a working socket */
       }
     };
 
-    socket.onclose = () => {
+    socket.onclose = (event) => {
       if (closedByCaller) return;
+
+      // Not a member. Retrying cannot help — only a membership change would,
+      // and that arrives through a different channel.
+      if (event.code === WS_FORBIDDEN) {
+        onStateChange?.("forbidden");
+        return;
+      }
+
+      // Expired token: ask for a fresh one. The caller re-runs its effect with
+      // the new token, which opens a new socket — so no retry is scheduled here,
+      // otherwise two would race.
+      if (event.code === WS_UNAUTHORIZED) {
+        onStateChange?.("error");
+        onAuthExpired?.();
+        return;
+      }
+
       onStateChange?.("closed");
       // Exponential backoff, capped at 30s.
       const delay = Math.min(1000 * 2 ** attempt, 30_000);
@@ -86,6 +108,12 @@ export function connectRealtime({ token, onMessage, onStateChange, path = "/ws" 
   open();
 
   return {
+    /** @returns {boolean} false if the socket was not open, so the frame was dropped. */
+    send(frame) {
+      if (socket?.readyState !== WebSocket.OPEN) return false;
+      socket.send(JSON.stringify(frame));
+      return true;
+    },
     close() {
       closedByCaller = true;
       clearTimeout(retryTimer);

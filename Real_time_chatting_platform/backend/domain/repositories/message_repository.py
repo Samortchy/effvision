@@ -24,6 +24,22 @@ class MessageRepository(ABC):
         ...
 
     @abstractmethod
+    async def update_content(
+        self, message_id: uuid.UUID, content: str, edited_at: datetime
+    ) -> Message:
+        """Rewrite a message's body and stamp it as edited.
+
+        Takes the id rather than a Message entity on purpose. Entities returned
+        by this repository are plain dataclasses, detached from the ORM identity
+        map — mutating one and handing it back would write nothing. Passing the
+        id forces the implementation to load the row it actually intends to
+        change.
+
+        Raises MessageNotFoundError if there is no such message.
+        """
+        ...
+
+    @abstractmethod
     async def delete_message(self, message_id: uuid.UUID, deleted_at: datetime) -> None:
         ...
 

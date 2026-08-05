@@ -31,6 +31,10 @@ alembic==1.16.4
 
 # --- Config & validation ---------------------------------------------------
 pydantic==2.12.3
+# Required by pydantic's EmailStr, which auth_dto and user_dto both use.
+# Pydantic does not pull it in by default — without it *every* model carrying an
+# EmailStr fails at class-construction time, so the app cannot import at all.
+email-validator==2.2.0
 pydantic-settings==2.12.0
 # Backs SettingsConfigDict(env_file=".env") in core/config.py.
 python-dotenv==1.1.1

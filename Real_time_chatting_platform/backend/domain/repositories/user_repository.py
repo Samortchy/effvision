@@ -39,7 +39,16 @@ class UserRepository(ABC):
         ...
 
     @abstractmethod
-    async def update_last_seen(self, user_id: uuid.UUID, timestamp: datetime) -> None:
+    async def update_last_seen(
+        self, user_id: uuid.UUID, timestamp: datetime, stale_before: datetime | None = None
+    ) -> None:
+        """Set last_seen_at to `timestamp`.
+
+        When `stale_before` is given the write is conditional: it applies only
+        if the stored value is null or older than that bound. The throttle has
+        to be enforced here, in the statement, because the caller's check races
+        against every concurrent request from the same user.
+        """
         ...
 
     @abstractmethod

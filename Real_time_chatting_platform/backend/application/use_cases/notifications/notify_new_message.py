@@ -25,7 +25,9 @@ class NotifyNewMessageUseCase:
         self.conversation_repo = conversation_repo
         self.notification_repo = notification_repo
 
-    async def execute(self, message: Message) -> list[Notification]:
+    async def execute(
+        self, message: Message, sender_username: str | None = None
+    ) -> list[Notification]:
         members = await self.conversation_repo.list_members(message.conversation_id)
         recipient_ids: list[uuid.UUID] = [
             member.user_id
@@ -41,6 +43,12 @@ class NotifyNewMessageUseCase:
                 "conversation_id": str(message.conversation_id),
                 # None for a system-authored message (sender_id is nullable).
                 "sender_id": str(message.sender_id) if message.sender_id else None,
+                # Denormalised alongside the id: the recipient's client has no
+                # endpoint that turns a user id into a name, so without this the
+                # toast reads "New message" with nobody attached. A notification
+                # is a snapshot of a moment, so a later rename not being
+                # reflected here is correct, not stale.
+                "sender_username": sender_username,
                 # Enough for a toast/preview without a second round-trip. Trimmed
                 # so a long message doesn't bloat every recipient's payload.
                 "preview": message.content[:140],

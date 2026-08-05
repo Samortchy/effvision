@@ -1,65 +1,77 @@
 import { useState } from "react";
 
 import { Button } from "../../components/ui";
+import { describeApiError } from "../../lib/apiClient";
 import { useChatStore } from "../../stores/chatStore";
 
-/**
- * Composer for step 7 (real-time send).
- *
- * ⚠️ Disabled on purpose. There is no endpoint to send a message: messages.py
- * has only DELETE and search, no api/websocket/ package exists, and the
- * broadcaster imports a connection_manager module that was never written. The
- * input is left visible but inert so the layout is finished and the reason is
- * obvious — see chatStore.sendMessage for the single call site to enable.
- */
-export default function MessageComposer({ conversationId }) {
+export default function MessageComposer({ conversationId, onTyping, onSent }) {
   const sendMessage = useChatStore((state) => state.sendMessage);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState(null);
+  const [sending, setSending] = useState(false);
 
-  const canSend = false; // flip when the backend send path exists
+  // Mirrors MessageRequest.content on the server (1–4000). Enforced here too so
+  // an over-long paste is caught before it costs a round trip and a 422.
+  const MAX_LENGTH = 4000;
+  const trimmed = draft.trim();
+  const tooLong = draft.length > MAX_LENGTH;
+  const canSend = trimmed.length > 0 && !tooLong && !sending;
 
   async function handleSubmit(event) {
     event.preventDefault();
-    if (!draft.trim()) return;
+    if (!canSend) return;
+
+    setSending(true);
+    setError(null);
+    // Cleared optimistically so the box is ready for the next message, and
+    // restored if the send fails rather than silently losing what was typed.
+    setDraft("");
     try {
-      await sendMessage(conversationId, draft.trim());
-      setDraft("");
-      setError(null);
+      await sendMessage(conversationId, trimmed);
+      // The message itself ends the typing state — no need to wait for the
+      // idle timer to fire a typing_stop.
+      onSent?.();
     } catch (err) {
-      setError(err.message);
+      setDraft(trimmed);
+      setError(describeApiError(err, "Could not send that message."));
+    } finally {
+      setSending(false);
     }
   }
 
   return (
     <div className="border-t border-edge px-4 py-3">
-      <div className="mb-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
-        <strong className="font-semibold">Sending is not wired up yet.</strong>{" "}
-        The backend has no send-message route and no WebSocket layer — both are
-        still in progress. History, search and delete all work.
-      </div>
-
       <form onSubmit={handleSubmit} className="flex items-end gap-2">
         <textarea
           rows={1}
           value={draft}
-          disabled={!canSend}
-          onChange={(event) => setDraft(event.target.value)}
+          onChange={(event) => {
+            setDraft(event.target.value);
+            // Throttled inside the hook: one typing_start, then a single
+            // typing_stop once the user goes quiet — not a frame per keystroke.
+            onTyping?.();
+          }}
           onKeyDown={(event) => {
+            // Enter sends; Shift+Enter inserts a newline.
             if (event.key === "Enter" && !event.shiftKey) {
               event.preventDefault();
               handleSubmit(event);
             }
           }}
-          placeholder="Sending is unavailable until the backend ships it"
+          placeholder="Write a message…"
           aria-label="Message"
           className="max-h-40 min-h-[42px] flex-1 resize-y rounded-lg border border-edge bg-surface-sunken px-3 py-2.5 text-sm text-slate-100 placeholder:text-slate-600 focus:border-accent focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
         />
-        <Button type="submit" disabled={!canSend || !draft.trim()}>
+        <Button type="submit" disabled={!canSend}>
           Send
         </Button>
       </form>
 
+      {tooLong ? (
+        <p className="mt-2 text-xs text-amber-300">
+          {draft.length.toLocaleString()} / {MAX_LENGTH.toLocaleString()} characters — too long to send.
+        </p>
+      ) : null}
       {error ? <p className="mt-2 text-xs text-red-300">{error}</p> : null}
     </div>
   );

@@ -6,8 +6,13 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 15
     refresh_token_expire_days: int = 30
-    debug: bool = True #turn off in production
-    log_level: str = "DEBUG"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+    # Default off. `debug` drives echo=True on the SQLAlchemy engine, which logs
+    # every statement *with its bound parameters* — for /auth/login and
+    # /auth/register that means password hashes and email addresses in the logs.
+    # An unset DEBUG must therefore fail closed, not open. Set DEBUG=true in
+    # your local .env.
+    debug: bool = False
+    log_level: str = "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

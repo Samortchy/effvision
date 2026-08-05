@@ -73,32 +73,75 @@ export async function removeMember(conversationId, targetUserId) {
 }
 
 /**
- * ⚠️ PENDING BACKEND — no send-message endpoint exists.
+ * POST /messages/{conversation_id}  { content } -> 201 MessageResponse
  *
- * Verified on 2026-07-30: api/routes/messages.py has only DELETE /{message_id}
- * and GET /{conversation_id}/search. There is no POST anywhere that creates a
- * message, no api/websocket/ package, and infrastructure/websocket/broadcaster.py
- * imports a connection_manager module that has not been written yet. The repo
- * layer *can* create messages (SQLAlchemyMessageRepository.create) — nothing is
- * wired up to it.
+ * The server broadcasts the new message to everyone in the room *except* the
+ * sender, so this response is the only copy our own client gets — it has to be
+ * folded into the thread by the caller.
  *
- * Left as an explicit throw rather than a silent no-op so the UI can show the
- * real reason instead of pretending a message was delivered.
+ * 403 = you are not a member, 404 = no such conversation.
  */
-export async function sendMessage() {
-  throw new Error(
-    "Sending is not available yet: the backend has no send-message endpoint or WebSocket layer.",
-  );
+export async function sendMessage(conversationId, content) {
+  const { data } = await apiClient.post(`/messages/${conversationId}`, { content });
+  return data;
+}
+
+/** PATCH /messages/{message_id}  { content } -> MessageResponse. Sender only (403 otherwise). */
+export async function editMessage(messageId, content) {
+  const { data } = await apiClient.patch(`/messages/${messageId}`, { content });
+  return data;
+}
+
+/** GET /conversations -> ConversationResponse[], newest activity first. */
+export async function fetchMyConversations() {
+  const { data } = await apiClient.get("/conversations");
+  return data;
+}
+
+/** GET /conversations/{id}/members -> ConversationMemberResponse[]. Active members only; 403 if you are not one. */
+export async function fetchMembers(conversationId) {
+  const { data } = await apiClient.get(`/conversations/${conversationId}/members`);
+  return data;
 }
 
 /**
- * ⚠️ PENDING BACKEND — no endpoint lists a conversation's members.
+ * POST /conversations/group  { name, description?, member_ids[] } -> 201 ConversationResponse
  *
- * ConversationMemberResponse exists in application/dto/conversation_dto.py but
- * no route returns it, so the members panel is fed from locally known users
- * (see chatStore.userCache). When GET /conversations/{id}/members lands, swap
- * this in and the panel works unchanged.
+ * The caller becomes the group's owner. `member_ids` may be empty — a group can
+ * be created first and filled from the members panel afterwards.
  */
-export async function fetchMembers() {
-  throw new Error("Listing conversation members is not supported by the backend yet.");
+export async function createGroup({ name, description, memberIds = [] }) {
+  const { data } = await apiClient.post("/conversations/group", {
+    name,
+    description: description || null,
+    member_ids: memberIds,
+  });
+  return data;
+}
+
+/**
+ * POST /conversations/{id}/members  { user_id, role } -> 201 ConversationMemberResponse
+ *
+ * Owners and admins only (403 otherwise). 409 if the user is already in.
+ * `role` is "member" or "admin" — granting ownership goes through
+ * changeMemberRole, which enforces the last-owner rule.
+ */
+export async function addMember(conversationId, userId, role = "member") {
+  const { data } = await apiClient.post(`/conversations/${conversationId}/members`, {
+    user_id: userId,
+    role,
+  });
+  return data;
+}
+
+/** GET /conversations/public -> ConversationResponse. The single global room. */
+export async function fetchPublicConversation() {
+  const { data } = await apiClient.get("/conversations/public");
+  return data;
+}
+
+/** POST /conversations/public/join -> 201 ConversationMemberResponse. 409 if already joined. */
+export async function joinPublicConversation() {
+  const { data } = await apiClient.post("/conversations/public/join");
+  return data;
 }

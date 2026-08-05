@@ -1,25 +1,44 @@
 from __future__ import annotations
-import uuid 
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from api.dependencies.auth import get_current_user
-from api.dependencies.repositories import get_conversation_repository, get_message_repository
+from api.dependencies.repositories import (
+    get_broadcaster,
+    get_conversation_repository,
+    get_message_repository,
+    get_notification_repository,
+    get_user_repository,
+)
 
 from application.dto.conversation_dto import MessageResponse
-from application.dto.message_dto import MessageRequest, EditMessageRequest
-from application.dto.message_dto import MessageSearchQuery
+from application.dto.message_dto import EditMessageRequest, MessageRequest, MessageSearchQuery
 
 from application.use_cases.messages.delete_message import DeleteMessageUseCase
+from application.use_cases.messages.edit_message import EditMessageUseCase
 from application.use_cases.messages.search_messages import SearchMessagesUseCase
-from application.use_cases.messages.send_message import SendMessageUseCase, UserIsNotMember
-from application.use_cases.messages.edit_message import EditMessageUseCase, MessageNotFoundError, NotMessageOwnerError
+from application.use_cases.messages.send_message import (
+    ConversationNotFound,
+    SendMessageUseCase,
+    UserIsNotMember,
+)
 
 from domain.entities.user import User
-from domain.exceptions import MessageNotFoundError, NotAConversationMemberError, NotMessageOwnerError
+# One canonical definition per error. These used to be imported twice — once
+# from edit_message, once from here — and the second import silently rebound the
+# names, so the `except` clauses below never matched what the use case raised.
+from domain.exceptions import (
+    MessageNotFoundError,
+    NotAConversationMemberError,
+    NotMessageOwnerError,
+)
 
+from domain.repositories.broadcaster import Broadcaster
 from domain.repositories.conversation_repository import ConversationRepository
 from domain.repositories.message_repository import MessageRepository
+from domain.repositories.notification_repository import NotificationRepository
+from domain.repositories.user_repository import UserRepository
 
 
 router = APIRouter(prefix="/messages", tags=["messages"])
@@ -59,27 +78,47 @@ async def search_messages(
     return [MessageResponse.model_validate(m) for m in messages]
 
 
-@router.post("/{conversation_id}/messages", response_model=MessageResponse, status_code=201)
+# POST /messages/{conversation_id} — the trailing "/messages" segment this route
+# used to carry made the full path /messages/{id}/messages.
+@router.post("/{conversation_id}", response_model=MessageResponse, status_code=201)
 async def send_message(
     conversation_id: uuid.UUID,
     data: MessageRequest,
-    current_user=Depends(get_current_user),
-    message_repo=Depends(get_message_repository),
-    convo_repo=Depends(get_conversation_repository),
+    current_user: User = Depends(get_current_user),
+    message_repo: MessageRepository = Depends(get_message_repository),
+    convo_repo: ConversationRepository = Depends(get_conversation_repository),
+    user_repo: UserRepository = Depends(get_user_repository),
+    notification_repo: NotificationRepository = Depends(get_notification_repository),
+    broadcaster: Broadcaster = Depends(get_broadcaster),
 ):
-    use_case = SendMessageUseCase(message_repo, convo_repo)
+    # Keyword arguments throughout: both the constructor and execute() take
+    # same-typed parameters in an order that is easy to transpose silently.
+    use_case = SendMessageUseCase(
+        convo_repo=convo_repo,
+        message_repo=message_repo,
+        user_repo=user_repo,
+        notification_repo=notification_repo,
+        broadcaster=broadcaster,
+    )
     try:
-        return await use_case.execute(conversation_id, current_user.id, data)
+        return await use_case.execute(
+            sender_id=current_user.id,
+            convo_id=conversation_id,
+            data=data,
+        )
+    except ConversationNotFound:
+        raise HTTPException(status_code=404, detail="Conversation not found")
     except UserIsNotMember:
         raise HTTPException(status_code=403, detail="You are not a member of this conversation")
 
 
-@router.patch("/messages/{message_id}", response_model=MessageResponse)
+# PATCH /messages/{message_id} — was /messages/messages/{message_id}.
+@router.patch("/{message_id}", response_model=MessageResponse)
 async def edit_message(
     message_id: uuid.UUID,
     data: EditMessageRequest,
-    current_user=Depends(get_current_user),
-    message_repo=Depends(get_message_repository),
+    current_user: User = Depends(get_current_user),
+    message_repo: MessageRepository = Depends(get_message_repository),
 ):
     use_case = EditMessageUseCase(message_repo)
     try:

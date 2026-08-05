@@ -39,6 +39,18 @@ class MembershipService:
         return False
 
     @staticmethod
+    def can_add_member(actor_role: Role) -> bool:
+        # Owners and admins may invite; plain members may not. Only the actor's
+        # role matters — unlike the rules above there is no target role yet,
+        # because the person being added is not in the conversation.
+        return actor_role in ("owner", "admin")
+
+    @staticmethod
+    def assert_can_add_member(actor_role: Role) -> None:
+        if not MembershipService.can_add_member(actor_role):
+            raise InsufficientPermissionError("Only owners and admins can add members")
+
+    @staticmethod
     def assert_can_change_role(actor_role: Role, target_role: Role, new_role: Role) -> None:
         if not MembershipService.can_change_role(actor_role, target_role, new_role):
             raise InsufficientPermissionError("You do not have permission to change this member's role")

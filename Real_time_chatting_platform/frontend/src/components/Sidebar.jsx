@@ -1,11 +1,16 @@
+import { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 
-import { Avatar, Button } from "./ui";
+import { Avatar, Button, Spinner } from "./ui";
 import UserSearch from "../features/users/UserSearch";
+import CreateGroupDialog from "../features/chat/CreateGroupDialog";
+import FriendsPanel from "../features/friends/FriendsPanel";
 import NotificationBell from "../features/notifications/NotificationBell";
+import { describeApiError } from "../lib/apiClient";
 import { conversationTitle } from "../lib/formatters";
 import { useAuthStore } from "../stores/authStore";
 import { useChatStore } from "../stores/chatStore";
+import { selectIncomingCount, useFriendStore } from "../stores/friendStore";
 
 export default function Sidebar() {
   const navigate = useNavigate();
@@ -13,11 +18,39 @@ export default function Sidebar() {
   const logout = useAuthStore((state) => state.logout);
   const conversations = useChatStore((state) => state.conversations);
   const resetChat = useChatStore((state) => state.reset);
+  const openPublicConversation = useChatStore((state) => state.openPublicConversation);
+
+  const [joiningPublic, setJoiningPublic] = useState(false);
+  const [publicError, setPublicError] = useState(null);
+  const [showCreateGroup, setShowCreateGroup] = useState(false);
+  const [showFriends, setShowFriends] = useState(false);
+  const incomingCount = useFriendStore(selectIncomingCount);
+  const resetFriends = useFriendStore((state) => state.reset);
+
+  // Already in the list once you have joined — the button below is only for
+  // getting in the first time.
+  const inPublicRoom = conversations.some((c) => c.type === "public");
 
   async function handleLogout() {
     await logout();
     resetChat();
+    // Friends are per-account; leaving them in memory would show the previous
+    // user's list to whoever signs in next on this browser.
+    resetFriends();
     navigate("/login", { replace: true });
+  }
+
+  async function handleOpenPublic() {
+    setJoiningPublic(true);
+    setPublicError(null);
+    try {
+      const conversation = await openPublicConversation();
+      navigate(`/c/${conversation.id}`);
+    } catch (err) {
+      setPublicError(describeApiError(err, "Could not open the public room."));
+    } finally {
+      setJoiningPublic(false);
+    }
   }
 
   return (
@@ -35,9 +68,56 @@ export default function Sidebar() {
         <NotificationBell />
       </div>
 
-      <div className="border-b border-edge p-3">
+      <div className="space-y-2 border-b border-edge p-3">
         <UserSearch />
+
+        <button
+          type="button"
+          onClick={() => setShowFriends(true)}
+          className="flex w-full items-center gap-2 rounded-lg border border-edge px-2 py-2 text-left text-sm text-slate-300 transition hover:bg-surface-raised hover:text-white"
+        >
+          <span aria-hidden="true" className="text-slate-500">☺</span>
+          <span className="flex-1">Friends</span>
+          {incomingCount > 0 ? (
+            <span
+              className="rounded-full bg-accent px-1.5 text-[10px] font-semibold text-slate-950"
+              aria-label={`${incomingCount} pending friend requests`}
+            >
+              {incomingCount > 9 ? "9+" : incomingCount}
+            </span>
+          ) : null}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setShowCreateGroup(true)}
+          className="flex w-full items-center gap-2 rounded-lg border border-edge px-2 py-2 text-left text-sm text-slate-300 transition hover:bg-surface-raised hover:text-white"
+        >
+          <span aria-hidden="true" className="text-slate-500">+</span>
+          <span className="flex-1">New group</span>
+        </button>
+
+        {!inPublicRoom ? (
+          <button
+            type="button"
+            onClick={handleOpenPublic}
+            disabled={joiningPublic}
+            className="flex w-full items-center gap-2 rounded-lg border border-edge px-2 py-2 text-left text-sm text-slate-300 transition hover:bg-surface-raised hover:text-white disabled:opacity-60"
+          >
+            <span aria-hidden="true" className="text-slate-500">#</span>
+            <span className="flex-1">Join the public room</span>
+            {joiningPublic ? <Spinner /> : null}
+          </button>
+        ) : null}
+
+        {publicError ? <p className="text-xs text-red-300">{publicError}</p> : null}
       </div>
+
+      {showCreateGroup ? (
+        <CreateGroupDialog onClose={() => setShowCreateGroup(false)} />
+      ) : null}
+
+      {showFriends ? <FriendsPanel onClose={() => setShowFriends(false)} /> : null}
 
       <nav className="min-h-0 flex-1 overflow-y-auto p-2">
         <h2 className="px-2 pb-2 pt-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -46,7 +126,8 @@ export default function Sidebar() {
 
         {conversations.length === 0 ? (
           <p className="px-2 text-sm text-slate-500">
-            Nothing here yet. Search for someone above to start talking.
+            Nothing here yet. Join the public room above, or search for someone
+            to start talking.
           </p>
         ) : (
           <ul className="space-y-0.5">
@@ -77,12 +158,6 @@ export default function Sidebar() {
           </ul>
         )}
 
-        {/* The list is local-only; say so rather than letting it look broken. */}
-        <p className="mt-4 rounded-lg border border-edge/60 bg-surface/40 px-2 py-2 text-[11px] leading-relaxed text-slate-500">
-          This list is stored in your browser. The backend has no
-          “list my conversations” endpoint yet, so conversations started by
-          other people appear only once they notify you.
-        </p>
       </nav>
 
       <div className="border-t border-edge p-3">

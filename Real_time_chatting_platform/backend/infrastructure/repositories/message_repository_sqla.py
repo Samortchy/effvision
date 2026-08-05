@@ -5,6 +5,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from domain.entities.message import Message
+from domain.exceptions import MessageNotFoundError
 from domain.repositories.message_repository import MessageRepository
 from infrastructure.database.models.message import Message as MessageORM
 
@@ -21,6 +22,23 @@ class SQLAlchemyMessageRepository(MessageRepository):
     async def create(self, conversation_id: uuid.UUID, sender_id: uuid.UUID, content: str) -> Message:
         orm_message = MessageORM(conversation_id=conversation_id, sender_id=sender_id, content=content)
         self.session.add(orm_message)
+        await self.session.flush()
+        return self._to_domain(orm_message)
+
+    async def update_content(
+        self, message_id: uuid.UUID, content: str, edited_at: datetime
+    ) -> Message:
+        # The ORM row, not the dataclass _to_domain returns: only an object in
+        # the session's identity map has its changes picked up by flush().
+        result = await self.session.execute(select(MessageORM).where(MessageORM.id == message_id))
+        orm_message = result.scalar_one_or_none()
+        if orm_message is None:
+            raise MessageNotFoundError("Message not found")
+
+        orm_message.content = content
+        orm_message.is_edited = True
+        orm_message.edited_at = edited_at
+        # flush, not commit: get_db() owns the transaction.
         await self.session.flush()
         return self._to_domain(orm_message)
 

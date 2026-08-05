@@ -28,12 +28,9 @@ export default function LoginPage() {
       await login({ identifier, password });
       navigate(location.state?.from ?? "/", { replace: true });
     } catch (err) {
-      // 404 here is the expected case today: the route does not exist yet.
-      setError(
-        err?.response?.status === 404
-          ? "The backend has no POST /auth/login route yet, so signing in is not possible. See features/auth/api.js."
-          : describeApiError(err, "Could not sign in."),
-      );
+      // 401 is the only expected failure: a deliberately generic message that
+      // does not say whether it was the identifier or the password.
+      setError(describeApiError(err, "Could not sign in."));
     } finally {
       setSubmitting(false);
     }
@@ -46,14 +43,6 @@ export default function LoginPage() {
           <h1 className="text-2xl font-semibold text-white">Sign in</h1>
           <p className="text-sm text-slate-400">Welcome back to Effvision Chat.</p>
         </header>
-
-        <Alert tone="warning">
-          <strong className="font-semibold">Pending backend.</strong> The login
-          endpoint has not been implemented — <code>api/routes/auth.py</code> has
-          only register, refresh and logout. This form is wired to the contract
-          the unused <code>LoginRequest</code> DTO implies and will work as soon
-          as the route ships.
-        </Alert>
 
         {sessionError ? <Alert tone="info">{sessionError}</Alert> : null}
         {error ? <Alert>{error}</Alert> : null}

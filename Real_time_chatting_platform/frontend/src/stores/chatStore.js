@@ -17,13 +17,11 @@ const emptyThread = {
 /**
  * Conversation + message state.
  *
- * ⚠️ The conversation list is local-only. The backend has no
- * "list my conversations" route (api/routes/conversations.py exposes just
- * /private, /{id}/messages, /leave and the two member routes), so the sidebar
- * can only show conversations this browser has seen. Consequences to be aware
- * of: a fresh device starts empty, and a conversation someone else opened with
- * you will not appear until a notification or a message reveals it. Persisting
- * to localStorage is what makes it survive a reload at all.
+ * The conversation list comes from GET /conversations and is refreshed by
+ * loadConversations() on mount. It is still persisted to localStorage, but only
+ * so the sidebar has something to paint before that request lands — the server
+ * is the source of truth, and the persisted copy is overwritten as soon as it
+ * answers.
  */
 export const useChatStore = create(
   persist(
@@ -48,6 +46,42 @@ export const useChatStore = create(
           ),
         })),
 
+      /**
+       * Authoritative conversation list from GET /conversations.
+       *
+       * Replaces the locally-remembered list rather than merging into it: the
+       * server knows about conversations this browser has never seen (someone
+       * opened one with you), and it also knows about ones you have left. A
+       * merge would keep the latter around forever.
+       *
+       * `peer` now comes from the server for private conversations, so a title
+       * survives a logout and is correct on a device that has never seen the
+       * other person. The locally-remembered one is only a fallback for the
+       * moment between an optimistic openPrivateConversation and this landing.
+       */
+      loadConversations: async () => {
+        const conversations = await chatApi.fetchMyConversations();
+        set((state) => {
+          const previousById = Object.fromEntries(
+            state.conversations.map((c) => [c.id, c]),
+          );
+          // Peers are exactly the users we need names for later — messages
+          // carry only sender_id, so seed the cache from them.
+          const userCache = { ...state.userCache };
+          for (const c of conversations) {
+            if (c.peer) userCache[c.peer.id] = c.peer;
+          }
+          return {
+            conversations: conversations.map((c) => ({
+              ...c,
+              peer: c.peer ?? previousById[c.id]?.peer,
+            })),
+            userCache,
+          };
+        });
+        return conversations;
+      },
+
       /** Start (or re-open) a 1:1 conversation and select it. */
       openPrivateConversation: async (peer) => {
         const conversation = await chatApi.startPrivateConversation(peer.id);
@@ -64,6 +98,42 @@ export const useChatStore = create(
           };
         });
 
+        await get().loadInitialHistory(conversation.id);
+        return conversation;
+      },
+
+      /** Create a group, refresh the list from the server, and select it. */
+      createGroup: async ({ name, description, memberIds }) => {
+        const conversation = await chatApi.createGroup({ name, description, memberIds });
+        await get().loadConversations();
+        set({ activeConversationId: conversation.id });
+        await get().loadInitialHistory(conversation.id);
+        return conversation;
+      },
+
+      addMember: async (conversationId, userId, role) =>
+        chatApi.addMember(conversationId, userId, role),
+
+      /**
+       * Open the global public room, joining it first if necessary.
+       *
+       * Join-then-open rather than checking membership first: the endpoint is
+       * the only thing that knows, and a 409 ("already a member") is a success
+       * for this purpose — it means the postcondition we want already holds.
+       * Treating it as an error would make the button fail for everyone who has
+       * used it once.
+       */
+      openPublicConversation: async () => {
+        const conversation = await chatApi.fetchPublicConversation();
+
+        try {
+          await chatApi.joinPublicConversation();
+        } catch (error) {
+          if (error?.response?.status !== 409) throw error;
+        }
+
+        await get().loadConversations();
+        set({ activeConversationId: conversation.id });
         await get().loadInitialHistory(conversation.id);
         return conversation;
       },
@@ -165,9 +235,18 @@ export const useChatStore = create(
         }
       },
 
-      /** ⚠️ PENDING BACKEND — see chat/api.js sendMessage. */
+      /**
+       * Send, then fold the server's copy into the thread.
+       *
+       * The broadcast excludes the sender (otherwise our own message would
+       * arrive twice — once as this response, once over the socket), so this is
+       * the only place our client learns its own message id and created_at.
+       * receiveMessage dedupes by id, so a racing socket frame is harmless.
+       */
       sendMessage: async (conversationId, content) => {
-        await chatApi.sendMessage(conversationId, content);
+        const message = await chatApi.sendMessage(conversationId, content);
+        get().receiveMessage(message);
+        return message;
       },
 
       leaveConversation: async (conversationId) => {

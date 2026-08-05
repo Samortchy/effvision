@@ -34,9 +34,9 @@ class JoinPublicConversationUseCase:
         self.convo_repo = convo_repo
     
     async def execute(self, user_id: UUID) -> ConversationMember:
-        exisiting_convo = await self.convo_repo.get_public_conversation()
+        existing_convo = await self.convo_repo.get_public_conversation()
 
-        if not exisiting_convo:
+        if not existing_convo:
             raise PublicConvoNotFound()
 
         user =  await self.user_repo.get_by_id(user_id)
@@ -47,16 +47,30 @@ class JoinPublicConversationUseCase:
         logger.info("user_fetched", user_id = str(user_id))
 
 
-        is_member = await self.convo_repo.get_member(exisiting_convo.id, user.id)
-     
-        if is_member:
-            raise AlreadyAMemberError(str(user.id), str(exisiting_convo.id))
+        membership = await self.convo_repo.get_member(existing_convo.id, user.id)
 
-        # Returns the created membership row — the route serialises it, so this
-        # must not be the repository's old `None`.
-        joining = await self.convo_repo.add_member(exisiting_convo.id, user.id)
+        # get_member returns the row even for someone who *left* — it is
+        # left_at, not the row's existence, that decides current membership.
+        # Testing the row alone locked anyone who ever left the public room out
+        # of it permanently.
+        if membership is not None and membership.left_at is None:
+            raise AlreadyAMemberError(str(user.id), str(existing_convo.id))
 
-        logger.info("user_joined_public_convo", convo_id = str(exisiting_convo.id), user_id = str(user.id))
+        if membership is not None:
+            # Rejoining. uq_conversation_member forbids a second row for the
+            # same pair, so the original one has to be revived.
+            joining = await self.convo_repo.reinstate_member(existing_convo.id, user.id, "member")
+        else:
+            # Returns the created membership row — the route serialises it, so
+            # this must not be the repository's old `None`.
+            joining = await self.convo_repo.add_member(existing_convo.id, user.id)
+
+        logger.info(
+            "user_joined_public_convo",
+            convo_id=str(existing_convo.id),
+            user_id=str(user.id),
+            rejoined=membership is not None,
+        )
         return joining
 
 

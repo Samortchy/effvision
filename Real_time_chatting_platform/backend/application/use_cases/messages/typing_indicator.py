@@ -23,4 +23,7 @@ class TypingIndicatorUseCase:
                 "conversation_id": str(conversation_id),
                 "user_id": str(user_id),
             },
+            # Never echo a typing indicator back to the person typing — their own
+            # client would render "you are typing…" at them.
+            exclude_user_id=user_id,
         )

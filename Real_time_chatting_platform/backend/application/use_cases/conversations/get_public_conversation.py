@@ -10,10 +10,10 @@ class GetPublicConversationUseCase:
         self.repo = repo
 
     async def execute(self) -> Conversation:
-        exisits = await self.repo.get_public_conversation()
+        existing = await self.repo.get_public_conversation()
 
-        if exisits:
-            return exisits
+        if existing:
+            return existing
 
         # create_public_conversation, not create(Conversation(...)): the entity
         # has no defaults and its id is the database's to assign, so there is no

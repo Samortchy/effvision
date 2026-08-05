@@ -1,27 +1,23 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { Alert, Avatar, Button, Spinner } from "../../components/ui";
 import { describeApiError } from "../../lib/apiClient";
 import { shortId } from "../../lib/formatters";
+import { fetchMembers } from "./api";
+import UserPicker from "../users/UserPicker";
 import { useAuthStore } from "../../stores/authStore";
 import { useChatStore } from "../../stores/chatStore";
 
 const ROLES = ["owner", "admin", "member"];
 
 /**
- * Group membership management: leave, change role, remove member.
+ * Group membership management: list, leave, change role, remove member.
  *
- * The three actions are wired to the real endpoints and work. What is missing
- * is the *read* side: no route returns a conversation's members
- * (ConversationMemberResponse is defined but never returned by anything), so
- * this panel can only list users this browser already knows — the conversation
- * peer and anyone seen in search. Swap in chatApi.fetchMembers once
- * GET /conversations/{id}/members exists and the rest of this component is
- * unchanged.
- *
- * Roles are also unknown for the same reason, so the role control shows no
- * current value; it only issues changes.
+ * The roster comes from GET /conversations/{id}/members, which returns active
+ * members with their real roles. Names are not in that payload — a member row
+ * carries a user_id — so they are resolved through chatStore.userCache and fall
+ * back to a short id for anyone this browser has not seen.
  */
 export default function MembersPanel({ conversationId, onClose }) {
   const navigate = useNavigate();
@@ -33,22 +29,35 @@ export default function MembersPanel({ conversationId, onClose }) {
   const leaveConversation = useChatStore((state) => state.leaveConversation);
   const changeMemberRole = useChatStore((state) => state.changeMemberRole);
   const removeMember = useChatStore((state) => state.removeMember);
+  const addMember = useChatStore((state) => state.addMember);
 
+  const [members, setMembers] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [busyUserId, setBusyUserId] = useState(null);
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
   const [leaving, setLeaving] = useState(false);
 
-  // Everything we can honestly claim is in this conversation.
-  const known = [
-    currentUser,
-    conversation?.peer,
-    ...(conversation?.type !== "private"
-      ? Object.values(userCache).filter(
-          (u) => u.id !== currentUser?.id && u.id !== conversation?.peer?.id,
-        )
-      : []),
-  ].filter(Boolean);
+  const loadMembers = useCallback(async () => {
+    setLoading(true);
+    try {
+      setMembers(await fetchMembers(conversationId));
+      setError(null);
+    } catch (err) {
+      setError(describeApiError(err, "Could not load the member list."));
+    } finally {
+      setLoading(false);
+    }
+  }, [conversationId]);
+
+  useEffect(() => {
+    loadMembers();
+  }, [loadMembers]);
+
+  // Mirrors MembershipService.can_add_member on the server. Hiding the control
+  // is a courtesy, not the control itself — the endpoint enforces it.
+  const myRole = (members ?? []).find((m) => m.user_id === currentUser?.id)?.role;
+  const canAddMembers = myRole === "owner" || myRole === "admin";
 
   async function withBusy(userId, action, successMessage) {
     setBusyUserId(userId);
@@ -57,6 +66,10 @@ export default function MembersPanel({ conversationId, onClose }) {
     try {
       await action();
       setNotice(successMessage);
+      // Re-read rather than patching locally: a role change can cascade (the
+      // last-owner rule), and the server is the only thing that knows the
+      // resulting state.
+      await loadMembers();
     } catch (err) {
       setError(describeApiError(err, "That action failed."));
     } finally {
@@ -87,18 +100,45 @@ export default function MembersPanel({ conversationId, onClose }) {
       </header>
 
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
-        <Alert tone="info" className="text-xs leading-relaxed">
-          No endpoint lists members yet, so this shows only people this browser
-          has seen. The actions below are live and hit the real API.
-        </Alert>
-
         {error ? <Alert>{error}</Alert> : null}
         {notice ? <Alert tone="info">{notice}</Alert> : null}
 
+        {/* Only groups accept new members: a private conversation is exactly
+            two people, and anyone can join the public room themselves. The
+            backend rejects both with 400 — this just avoids offering it. */}
+        {conversation?.type === "group" && canAddMembers ? (
+          <div className="space-y-2 rounded-lg border border-edge bg-surface p-2.5">
+            <p className="text-xs font-medium text-slate-300">Add someone</p>
+            <UserPicker
+              placeholder="Search people…"
+              excludeIds={(members ?? []).map((m) => m.user_id)}
+              onSelect={(user) =>
+                withBusy(
+                  user.id,
+                  () => addMember(conversationId, user.id),
+                  `${user.display_name || user.username} added.`,
+                )
+              }
+            />
+          </div>
+        ) : null}
+
+        {loading && members === null ? (
+          <div className="flex justify-center py-6">
+            <Spinner className="h-5 w-5" />
+          </div>
+        ) : null}
+
         <ul className="space-y-2">
-          {known.map((member) => {
-            const isSelf = member.id === currentUser?.id;
-            const busy = busyUserId === member.id;
+          {(members ?? []).map((member) => {
+            const isSelf = member.user_id === currentUser?.id;
+            const busy = busyUserId === member.user_id;
+            // The member row carries a user_id, not a profile. Anyone this
+            // browser has seen (search results, the conversation peer) resolves
+            // to a name; anyone else degrades to a short id.
+            const profile = isSelf ? currentUser : userCache[member.user_id];
+            const label =
+              profile?.display_name || profile?.username || shortId(member.user_id);
 
             return (
               <li
@@ -106,16 +146,17 @@ export default function MembersPanel({ conversationId, onClose }) {
                 className="rounded-lg border border-edge bg-surface p-2.5"
               >
                 <div className="flex items-center gap-2.5">
-                  <Avatar user={member} size={30} />
+                  <Avatar user={profile} size={30} />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm text-slate-100">
-                      {member.display_name || member.username || shortId(member.id)}
+                      {label}
                       {isSelf ? (
                         <span className="ml-1 text-xs text-slate-500">(you)</span>
                       ) : null}
                     </p>
                     <p className="truncate text-xs text-slate-500">
-                      @{member.username}
+                      {profile?.username ? `@${profile.username} · ` : ""}
+                      {member.role}
                     </p>
                   </div>
                   {busy ? <Spinner /> : null}
@@ -124,22 +165,20 @@ export default function MembersPanel({ conversationId, onClose }) {
                 {!isSelf ? (
                   <div className="mt-2 flex items-center gap-2">
                     <select
-                      defaultValue=""
+                      value={member.role}
                       disabled={busy}
                       onChange={(event) => {
                         const role = event.target.value;
-                        if (!role) return;
-                        event.target.value = "";
+                        if (!role || role === member.role) return;
                         withBusy(
-                          member.id,
-                          () => changeMemberRole(conversationId, member.id, role),
+                          member.user_id,
+                          () => changeMemberRole(conversationId, member.user_id, role),
                           `Role updated to ${role}.`,
                         );
                       }}
                       className="flex-1 rounded-md border border-edge bg-surface-sunken px-2 py-1 text-xs text-slate-200 focus:border-accent focus:outline-none"
-                      aria-label={`Change role for ${member.username}`}
+                      aria-label={`Change role for ${label}`}
                     >
-                      <option value="">Set role…</option>
                       {ROLES.map((role) => (
                         <option key={role} value={role}>
                           {role}
@@ -153,9 +192,9 @@ export default function MembersPanel({ conversationId, onClose }) {
                       className="px-2 py-1 text-xs"
                       onClick={() =>
                         withBusy(
-                          member.id,
-                          () => removeMember(conversationId, member.id),
-                          `${member.username} removed.`,
+                          member.user_id,
+                          () => removeMember(conversationId, member.user_id),
+                          `${label} removed.`,
                         )
                       }
                     >
@@ -167,6 +206,10 @@ export default function MembersPanel({ conversationId, onClose }) {
             );
           })}
         </ul>
+
+        {!loading && members?.length === 0 ? (
+          <p className="text-xs text-slate-500">No active members.</p>
+        ) : null}
       </div>
 
       <div className="border-t border-edge p-3">

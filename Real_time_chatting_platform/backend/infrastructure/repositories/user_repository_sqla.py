@@ -1,7 +1,7 @@
 from __future__ import annotations
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,8 +25,10 @@ class SQLAlchemyUserRepository(UserRepository):
         orm_user.display_name = user.display_name
         orm_user.avatar_url = user.avatar_url
         orm_user.bio = user.bio
-        await self.session.commit()
-        await self.session.refresh(orm_user)
+        # flush, not commit: get_db() owns the transaction and commits once the
+        # request succeeds. Committing here makes a partial update durable even
+        # if the rest of the request then fails, so nothing can be rolled back.
+        await self.session.flush()
         return self._to_domain(orm_user)
 
 #search
@@ -42,12 +44,18 @@ class SQLAlchemyUserRepository(UserRepository):
         orm_users = result.scalars().all()
         return [self._to_domain(u) for u in orm_users]
 #last seen
-    async def update_last_seen(self, user_id: uuid.UUID, timestamp: datetime) -> None:
-        result = await self.session.execute(select(UserORM).where(UserORM.id == user_id))
-        orm_user = result.scalar_one_or_none()
-        if orm_user:
-            orm_user.last_seen_at = timestamp
-            await self.session.flush()
+    async def update_last_seen(
+        self, user_id: uuid.UUID, timestamp: datetime, stale_before: datetime | None = None
+    ) -> None:
+        # One conditional UPDATE rather than SELECT-then-mutate. Two concurrent
+        # requests that both read the same stale last_seen_at would otherwise
+        # both write; here the second matches zero rows and costs nothing.
+        stmt = update(UserORM).where(UserORM.id == user_id).values(last_seen_at=timestamp)
+        if stale_before is not None:
+            stmt = stmt.where(
+                or_(UserORM.last_seen_at.is_(None), UserORM.last_seen_at < stale_before)
+            )
+        await self.session.execute(stmt)
     
 
     def __init__(self, session: AsyncSession):
